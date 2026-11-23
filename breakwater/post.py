@@ -105,6 +105,17 @@ def denoise(c, normal, pos, eye, sky_mask, iters=4):
     return out
 
 
+def despeckle(c, mask):
+    """Pull isolated hot pixels (specular sparkle on wet hide and worn steel) down to their neighbourhood's median."""
+    lum = c @ LUMA
+    h, w = lum.shape
+    p = np.pad(lum, 1, mode='edge')
+    med = np.median(np.stack([p[i:i + h, j:j + w] for i in range(3) for j in range(3)]), axis=0)
+    hot = mask & (lum > med * 1.8 + 0.03)
+    k = np.where(hot, (med * 1.2 + 0.01) / np.maximum(lum, 1e-6), 1.0).astype(np.float32)
+    return c * k[..., None]
+
+
 def temporal(cur, pos, cam, prev, alpha=0.7):
     """Blend with the previous output where the same world point was visible there. prev = (image, pos, Cam)."""
     if prev is None: return cur
@@ -221,19 +232,19 @@ def particles(sortie, st, meta, fog_eye):
     mz = np.array(meta['muzzle'])
     if st['mech']['charge'] > 0.02:
         ch = st['mech']['charge']
-        out.append(dict(p=mz, size=4 + ch * 13, col=PLASMA * 5 * ch, a=1.0, soft=3))
+        out.append(dict(p=mz, size=1.2 + ch * 3.2, col=PLASMA * 5 * ch, a=1.0, soft=2))
     b = st['bolt']
     if b is not None:
         tgt = chest(sortie.impact_t)
         for k, back in enumerate(np.linspace(0, 0.16, 9)):
             q = max(0.0, b - back)
             pos = mz + (tgt - mz) * q
-            out.append(dict(p=pos, size=(15 if k == 0 else 9 * (1 - back * 4)), col=PLASMA * (9 if k == 0 else 3.5 * (1 - back * 5)), a=1.0, soft=5))
-    ball(sortie.fire_t, mz, 1, 21, 0.0, 0.12, 60.0, PLASMA * 8, grav=0, soft=20)
+            out.append(dict(p=pos, size=(9 if k == 0 else 6 * (1 - back * 4)), col=PLASMA * (9 if k == 0 else 3.5 * (1 - back * 5)), a=1.0, soft=5))
+    ball(sortie.fire_t, mz, 1, 21, 0.0, 0.12, 11.0, PLASMA * 8, grav=0, soft=6)
     ti = sortie.impact_t; ci = chest(ti)
-    ball(ti, ci, 1, 31, 0.0, 0.32, 150.0, PLASMA * 9, grav=0, soft=40)
-    ball(ti, ci, 34, 32, 80.0, 0.9, 5.0, PLASMA * 5, grav=18, drag=1.2)
-    ball(ti, ci, 26, 33, 46.0, 1.6, 4.0, ICHOR * 3.2, grav=30, drag=0.4, bias=(18, 0, 10))
+    ball(ti, ci, 1, 31, 0.0, 0.30, 58.0, PLASMA * 6, grav=0, soft=20)
+    ball(ti, ci, 40, 32, 80.0, 0.9, 1.6, PLASMA * 6, grav=18, drag=1.2)
+    ball(ti, ci, 34, 33, 46.0, 1.6, 1.5, ICHOR * 3.6, grav=30, drag=0.4, bias=(18, 0, 10))
     ball(ti, ci, 8, 34, 14.0, 3.0, 34.0, SPRAY * 0.9, grav=0, drag=0.6, add=False, a=0.4, soft=14, grow=1.6, noise=True)
     # the swipe across the canopy: sparks a few metres from the eye
     eye = np.array(meta['eye']); fw = np.array(meta['fwd']); rt = np.array(meta['right'])
@@ -243,13 +254,13 @@ def particles(sortie, st, meta, fog_eye):
     for th, seed, pw, off in ((sortie.hit_l, 51, 1.0, 5.0), (sortie.hit_r, 52, 1.0, -5.0), (sortie.slam_hit, 53, 2.4, 0.0)):
         c = chest(th) + np.array([0, off, 6.0 if pw < 2 else 2.0])
         ball(th, c, 1, seed, 0.0, 0.2, 34.0 * pw, ICHOR * 5 + 2.0, grav=0, soft=14)
-        ball(th, c, int(22 * pw), seed + 100, 42.0 * (0.8 + 0.3 * pw), 1.5, 3.0, ICHOR * 3.2, grav=30, drag=0.4, bias=(26, 0, 12))
-        ball(th, c, int(12 * pw), seed + 200, 70.0, 0.8, 0.9, np.array([5.0, 2.6, 0.5]), grav=40, drag=0.8, bias=(20, 0, 8))
-        ball(th, c, int(5 * pw), seed + 300, 12.0, 2.2, 26.0, np.array([0.06, 0.16, 0.07]), grav=0, drag=0.8, add=False, a=0.4, soft=10, grow=1.5, noise=True)
+        ball(th, c, int(34 * pw), seed + 100, 42.0 * (0.8 + 0.3 * pw), 1.5, 1.2, ICHOR * 3.6, grav=30, drag=0.4, bias=(26, 0, 12))
+        ball(th, c, int(22 * pw), seed + 200, 70.0, 0.8, 0.38, np.array([6.0, 3.0, 0.6]), grav=40, drag=0.8, bias=(20, 0, 8))
+        ball(th, c, int(5 * pw), seed + 300, 12.0, 2.2, 13.0, np.array([0.05, 0.12, 0.06]), grav=0, drag=0.8, add=False, a=0.35, soft=8, grow=1.5, noise=True)
     # the body going into the bay
     ts = sortie.splash_t; cs = cx_at(ts)
     ball(ts, (cs['x'] + 30, cs['y'], 2.0), 110, 61, 62.0, 3.2, 17.0, SPRAY * 1.3, grav=22, drag=0.45, add=False, a=0.62, soft=10, grow=1.4, noise=True, bias=(10, 0, 30))
-    ball(ts, (cs['x'] + 30, cs['y'], 6.0), 34, 62, 20.0, 5.5, 70.0, SPRAY, grav=0.5, drag=0.35, add=False, a=0.32, soft=28, grow=1.5, noise=True)
+    ball(ts, (cs['x'] + 30, cs['y'], 6.0), 14, 62, 20.0, 4.5, 48.0, SPRAY, grav=0.5, drag=0.35, add=False, a=0.17, soft=28, grow=1.3, noise=True)
     # haze swallows distant sprites like everything else
     for s in out:
         f = float(sky.fog_amount(fog_eye, np.asarray(s['p'], float)))
@@ -366,7 +377,7 @@ def hud(w, h, sortie, st, cam, meta):
         x0 = L(40 + i * 178); d.rectangle([x0, L(128), x0 + L(164), L(156)], outline=col, width=L(2)); draw_text(d, x0 + L(12), L(136), lab, L(12), col, L(2))
     # compass
     yaw = np.arctan2(cam.f[0], cam.f[1]); brg = np.degrees(yaw) % 360
-    cx = w / 2; cy = L(46); cw = L(520); span = 110.0
+    cx = w / 2; cy = L(168); cw = L(520); span = 110.0
     for deg in range(int(np.ceil((brg - span / 2) / 5) * 5), int(brg + span / 2) + 1, 5):
         x = cx + (deg - brg) / span * cw; dd = deg % 360; major = dd % 15 == 0
         d.line([(x, cy - L(8 if major else 4)), (x, cy + L(8 if major else 4))], fill=DIM, width=L(2))
@@ -378,7 +389,7 @@ def hud(w, h, sortie, st, cam, meta):
     d.rectangle([w - L(300), L(70), w - L(40), L(78)], fill=INK)
     # hull, reactor
     for i, (lab, val, col) in enumerate((('HULL', m['hull'], OR if m['hull'] > 0.3 else AL), ('REACTOR', m['reactor'], CY))):
-        y0 = h - L(150 - i * 62)
+        y0 = L(196 + i * 58)
         draw_text(d, L(40), y0, lab, L(12), DIM, L(2)); draw_text(d, L(300), y0 - L(12), '%d' % round(val * 100), L(26), INK, L(3), align='r')
         d.rectangle([L(40), y0 + L(22), L(300), y0 + L(30)], outline=DIM, width=1)
         d.rectangle([L(40), y0 + L(22), L(40) + L(260 * np.clip(val, 0, 1)), y0 + L(30)], fill=col)
@@ -386,9 +397,9 @@ def hud(w, h, sortie, st, cam, meta):
     for i, (lab, arm) in enumerate((('PORT', m['L'][0]), ('STBD', m['R'][0]))):
         x0 = w - L(40 + (2 - i) * 104) + L(8); act = arm in ('punch', 'slam', 'fire'); chg = arm in ('charge', 'block')
         col = OR if act else CY if chg else DIM
-        if act or chg: d.rectangle([x0, h - L(110), x0 + L(92), h - L(76)], fill=col); draw_text(d, x0 + L(46), h - L(100), lab, L(13), (5, 8, 11), L(2), align='c')
-        else: d.rectangle([x0, h - L(110), x0 + L(92), h - L(76)], outline=col, width=L(2)); draw_text(d, x0 + L(46), h - L(100), lab, L(13), col, L(2), align='c')
-    draw_text(d, w - L(40), h - L(56), 'CREW SYNC %d%%' % round(100 * (0.42 + 0.3 * smooth(sortie.hit_l, sortie.slam_hit, t) + 0.28 * smooth(sortie.slam_hit, sortie.slam_hit + 0.3, t))), L(12), DIM, L(2), align='r')
+        if act or chg: d.rectangle([x0, L(100), x0 + L(92), L(134)], fill=col); draw_text(d, x0 + L(46), L(110), lab, L(13), (5, 8, 11), L(2), align='c')
+        else: d.rectangle([x0, L(100), x0 + L(92), L(134)], outline=col, width=L(2)); draw_text(d, x0 + L(46), L(110), lab, L(13), col, L(2), align='c')
+    draw_text(d, w - L(40), L(152), 'CREW SYNC %d%%' % round(100 * (0.42 + 0.3 * smooth(sortie.hit_l, sortie.slam_hit, t) + 0.28 * smooth(sortie.slam_hit, sortie.slam_hit + 0.3, t))), L(12), DIM, L(2), align='r')
     # reticle and cannon charge
     rx, ry = w / 2, h / 2
     for a, b in (((-22, 0), (-8, 0)), ((8, 0), (22, 0)), ((0, -22), (0, -8)), ((0, 8), (0, 22))):
@@ -418,7 +429,7 @@ def hud(w, h, sortie, st, cam, meta):
     if hd['glitch'] > 0.05:                                                       # torn scan lines after the hit
         rng = np.random.default_rng(int(t * 24) + 7)
         for _ in range(int(10 * hd['glitch'])):
-            y0 = int(rng.integers(0, h - 12)); out[y0:y0 + int(rng.integers(3, 12))] = np.roll(out[y0:y0 + 12][:int(rng.integers(3, 12))], int(rng.integers(-60, 60) * u), axis=1)
+            y0 = int(rng.integers(0, h - 12)); n = int(rng.integers(3, 12)); out[y0:y0 + n] = np.roll(out[y0:y0 + n], int(rng.integers(-60, 60) * u), axis=1)
     return out
 
 
@@ -436,6 +447,7 @@ def grade_frame(passes, meta, sortie, prev, height_grid, out_size=(1920, 1080)):
     # 1. clean up the path tracer's noise
     raw = np.maximum(rgb - emit, 0)
     water = (~skym) & (np.abs(pos[..., 2]) < 0.35) & (nrm[..., 2] > 0.5)
+    raw = despeckle(raw, ~water & ~skym)
     c = denoise(raw, nrm, pos, cam.eye, skym)
     c[water] = c[water] * 0.2 + np.minimum(raw, _box3(raw) * 4.0 + 0.2)[water] * 0.8      # keep the ripples the filter cannot see in the normal pass
     c = temporal(c, pos, cam, prev, alpha=0.7 * (1 - min(1.0, st['flash'] * 4)))

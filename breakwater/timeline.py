@@ -87,7 +87,9 @@ class Sortie:
         c0, c1 = p['charge']
         if c0 <= t < c1: R = ('charge', t - c0); charge = min(1.0, (t - c0) / 1.15)
         elif c1 <= t < c1 + self.md['fire']['dur']: R = ('fire', t - c1)
-        if p['run2_end'] + 0.25 <= t < p['punch_l'] - 0.05: L = ('block', t - p['run2_end'] - 0.25)        # braces as it winds up
+        b0, b1 = p['run2_end'] + 0.25, self.swipe_hit + 0.12                                              # braces as it winds up, lets go after the blow
+        if b0 <= t < b1: L = ('block', t - b0)
+        elif b1 <= t < min(b1 + 0.3, p['punch_l']): L = ('block', t - b0, t - b1)
         if p['punch_l'] <= t < p['punch_l'] + self.md['punch']['dur']: L = ('punch', t - p['punch_l'])
         if p['punch_r'] <= t < p['punch_r'] + self.md['punch']['dur']: R = ('punch', t - p['punch_r'])
         if p['slam'] <= t < p['slam'] + self.md['slam']['dur']: L = R = ('slam', t - p['slam'])
@@ -140,7 +142,7 @@ class Sortie:
         tr += 0.8 * _pulse(t, self.slam_hit, 3.0) + 0.35 * _pulse(t, self.splash_t, 2.5) + 0.25 * _pulse(t, p['lightning'] + 1.6, 1.5)
         tr = float(min(tr, 1.0)); s = tr * tr; q = t * 31.0
         shake = (s * 0.030 * np.sin(q * 1.7 + 1.3), s * 0.034 * np.sin(q * 1.3), s * 0.040 * np.sin(q * 1.1 + 4.0))      # yaw, pitch, roll
-        return dict(yaw=float(yaw + shake[0]), pitch=float(pitch + shake[1]), roll=float(shake[2]), lift=float(s * 1.0 * np.sin(q * 2.1)), trauma=tr)
+        return dict(yaw=float(yaw + shake[0]), pitch=float(pitch + shake[1]), roll=float(shake[2]), lift=float(s * 0.12 * np.sin(q * 2.1)), trauma=tr)
 
     # ---------------------------------------------------------------- everything else a frame needs
     def bolt(self, t):

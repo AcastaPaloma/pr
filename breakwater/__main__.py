@@ -9,7 +9,7 @@
   all      render, post, audio, mux, check
 
 Options: --script file.json (override beat times/positions, see timeline.DEFAULT), --size 960x540,
---samples 16, --start/--end (frame range), --follow (post: keep waiting for frames from a running render).
+--samples 12, --start/--end (frame range), --follow (post: keep waiting for frames from a running render).
 """
 import argparse, glob, json, os, subprocess, sys, time
 import numpy as np
@@ -123,7 +123,7 @@ def cmd_still(args, s):
 def main():
     ap = argparse.ArgumentParser(prog='python -m breakwater', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('command', choices=['render', 'post', 'audio', 'mux', 'check', 'still', 'all'])
-    ap.add_argument('--out', default='out'); ap.add_argument('--script'); ap.add_argument('--size', default='960x540'); ap.add_argument('--samples', type=int, default=16)
+    ap.add_argument('--out', default='out'); ap.add_argument('--script'); ap.add_argument('--size', default='960x540'); ap.add_argument('--samples', type=int, default=12)
     ap.add_argument('--start', type=int); ap.add_argument('--end', type=int); ap.add_argument('--follow', action='store_true'); ap.add_argument('--keep-exr', action='store_true')
     ap.add_argument('--t', type=float, nargs='*', default=[10.3]); ap.add_argument('--crf', type=int, default=19)
     args = ap.parse_args()
