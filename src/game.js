@@ -134,8 +134,8 @@
   function addKaiju(id, key) {
     const sp = BW.Kaiju.SPECIES[key];
     const k = { id, key, sp, spIdx: SPK.indexOf(key), model: acquire(key), glow: new T.Color(sp.glow), x: 0, z: 0, yaw: 0, hp: sp.hp, maxHp: sp.hp, hpFrac: 1,
-      ai: 'swim', t: 0, anim: 'swim', at: 0, next: 'swipeL', look: 0, gait: 1, poise: sp.hp * 0.22, target: 'mech', cityPt: null, emergeAt: [0, 0], atkCd: 1.5, hold: 0.5,
-      hitDone: false, kvx: 0, kvz: 0, roars: false, tx: 0, tz: 0, tyaw: 0, shed: 0 };
+      ai: 'swim', t: 0, anim: 'swim', at: 0, next: 'swipeL', look: 0, gait: 1, poise: sp.hp * 0.3, target: 'mech', cityPt: null, emergeAt: [0, 0], atkCd: 0.6, hold: 0.5,
+      hitDone: false, kvx: 0, kvz: 0, armor: 0, roars: false, tx: 0, tz: 0, tyaw: 0, shed: 0 };
     scene.add(k.model.group);
     sim.kaijus.push(k);
     return k;
@@ -175,8 +175,8 @@
   }
   function spawn(key, target, x, z) {
     const k = addKaiju(sim.nextId++, key);
-    k.hp = k.maxHp = k.sp.hp * (1 + 0.14 * Math.max(0, sim.wave - 1));
-    k.poise = k.maxHp * 0.22;
+    k.hp = k.maxHp = k.sp.hp * 1.45 * (1 + 0.14 * Math.max(0, sim.wave - 1));
+    k.poise = k.maxHp * 0.3;
     k.target = target;
     const m = sim.mech;
     k.x = x === undefined ? -1950 - rnd() * 150 : x; k.z = z === undefined ? (rnd() - 0.5) * 700 : z;
@@ -196,7 +196,7 @@
   function turnToward(k, want, rate, dt) { const d = angDiff(k.yaw, want); k.yaw += clamp(d, -rate * dt, rate * dt); }
   function stepKaiju(k, dt) {
     const m = sim.mech, sp = k.sp, D = KD;
-    k.t += dt; k.at += dt; k.atkCd -= dt;
+    k.t += dt; k.at += dt; k.atkCd -= dt; k.armor = Math.max(0, (k.armor || 0) - dt);
     k.x += k.kvx * dt; k.z += k.kvz * dt;
     const kd = Math.exp(-4 * dt); k.kvx *= kd; k.kvz *= kd;
     const city = k.target === 'city' && k.cityPt;
@@ -249,11 +249,11 @@
         const AD = D[k.next] || { dur: 1, hit: 0.4 };
         if (k.next === 'lunge' && k.t < AD.hit + 0.12 && dist > sp.reach * 0.55) fwd(92);
         if (!k.hitDone && k.t >= AD.hit) { k.hitDone = true; kaijuStrike(k, dist, rel); }
-        if (k.t >= AD.dur) { setAI(k, 'recover'); k.atkCd = Math.max(0.5, 1.5 - sim.wave * 0.08) + rnd() * 1.3; k.hold = 0.35 + rnd() * 0.5; }
+        if (k.t >= AD.dur) { setAI(k, 'recover'); k.atkCd = Math.max(0.3, 0.9 - sim.wave * 0.06) + rnd() * 0.8; k.hold = 0.3 + rnd() * 0.35; }
         break;
       }
       case 'recover': if (k.t >= k.hold) setAI(k, 'approach'); break;
-      case 'stagger': if (k.t >= D.stagger) { setAI(k, 'approach'); k.atkCd = Math.max(k.atkCd, 0.4); } break;
+      case 'stagger': if (k.t >= D.stagger) { setAI(k, 'approach'); k.atkCd = 0.15; k.armor = 3.2; } break;      // shrugs it off, and cannot be stun-locked
       case 'smash': {
         const AD = D.smash;
         turnToward(k, Math.atan2(0.2, 1), 0.6, dt);        // face the city
@@ -284,7 +284,7 @@
       return;
     }
     if (dist < sp.reach + 24 && Math.abs(rel) < 0.95) {
-      const base = { swipeL: 75, swipeR: 75, bite: 115, lunge: 150 }[k.next] || 70;
+      const base = { swipeL: 85, swipeR: 85, bite: 125, lunge: 160 }[k.next] || 80;
       damageMech(base * (1 + 0.1 * (sim.wave - 1)), k.x, k.z, k.next === 'lunge' ? 70 : 42);
     }
   }
@@ -305,14 +305,15 @@
     const m = sim.mech;
     k.hp -= dmg; k.poise -= dmg;
     k.target = 'mech';
-    const away = BW.yawTo(m.x, m.z, k.x, k.z), kn = power >= 3 ? 46 : power === 2 ? 30 : 9;
+    const away = BW.yawTo(m.x, m.z, k.x, k.z), kn = (power >= 3 ? 46 : power === 2 ? 30 : 9) * (k.armor > 0 ? 0.35 : 1);
     k.kvx += Math.sin(away) * kn; k.kvz += Math.cos(away) * kn;
     if (k.hp <= 0) {
       k.hp = 0; setAI(k, 'death');
       sim.kills++; sim.score += Math.round(k.maxHp + sim.city * 3);
       emit('kill', k.x, k.z, k.sp.height / 100);
-    } else if ((k.poise <= 0 || power >= 2) && k.ai !== 'emerge' && k.ai !== 'swim') {
-      k.poise = k.maxHp * 0.22; setAI(k, 'stagger');
+    } else if (((k.poise <= 0 || power >= 2) && !(k.armor > 0)) || power >= 3) {
+      if (k.ai === 'emerge' || k.ai === 'swim') return;
+      k.poise = k.maxHp * 0.3; setAI(k, 'stagger');
     }
   }
   // side: -1 port, +1 starboard, 0 both. power: 1 punch, 2 hammer, 3 sync strike
@@ -325,7 +326,7 @@
       if (d < BW.Mech.REACH + k.sp.radius * 0.75 + (power > 1 ? 12 : 0) && rel < (power > 1 ? 1.0 : 0.8) && d < bd) { best = k; bd = d; }
     }
     if (!best) return;
-    const dmg = [0, 58, 150, 235][power] * (1 + 0.12 * Math.min(m.combo, 5)) * (1 + 0.5 * sim.sync);
+    const dmg = [0, 46, 135, 235][power] * (1 + 0.08 * Math.min(m.combo, 5)) * (1 + 0.5 * sim.sync);
     best.model.anchors.chest.getWorldPosition(v1);
     const back = BW.yawTo(best.x, best.z, m.x, m.z);
     v1.x += Math.sin(back) * best.sp.radius * 0.7; v1.z += Math.cos(back) * best.sp.radius * 0.7;
