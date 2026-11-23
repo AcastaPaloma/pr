@@ -1,0 +1,50 @@
+<!doctype html><meta charset="utf8"><title>world test</title><body style="margin:0;background:#000">
+<script src="../vendor/three.min.js"></script>
+<script src="../src/core.js"></script>
+<script src="../src/world.js"></script>
+<script src="../src/ocean.js"></script>
+<script src="../src/fx.js"></script>
+<script>
+  // Free camera over the real world + post pipeline.  ?x=&y=&z=&yaw=(deg, 0 = +Z south, 270 = west)&pitch=&fov=&t=&exp=&visor=
+  const T = THREE, q = new URLSearchParams(location.search), num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
+  const renderer = new T.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+  const scene = new T.Scene(), fxScene = new T.Scene();
+  scene.add(BW.makeSkyDome(1000));
+  BW.addLights(scene);
+  BW.buildEnvironment(renderer, scene);
+  const t0 = performance.now();
+  BW.World.create(scene, fxScene);
+  BW.Ocean.create(scene);
+  const fx = BW.FX.create(fxScene);
+  const post = BW.Post.create(renderer);
+  post.setSize(innerWidth, innerHeight);
+  console.log('world build ms', Math.round(performance.now() - t0), 'buildings', BW.World.buildingCount);
+  const camera = new T.PerspectiveCamera(num('fov', 75), innerWidth / innerHeight, 0.5, 40000);
+  camera.position.set(num('x', 300), num('y', 56), num('z', 200));
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = (num('yaw', 270) * Math.PI) / 180 + Math.PI;   // camera looks down -Z; yaw is in game convention
+  camera.rotation.x = (num('pitch', 0) * Math.PI) / 180;
+  post.finalMat.uniforms.uExposure.value = num('exp', 1.35);
+  post.finalMat.uniforms.uVisor.value = num('visor', 0);
+  BW.U.uFlash.value = num('flash', 0);
+  const fixedT = q.has('t') ? parseFloat(q.get('t')) : null;
+  let t = fixedT || 0, last = performance.now(), frames = 0;
+  const focus = new T.Vector3(num('fx', 0), 40, num('fz', 0));
+  BW.Ocean.setDisturb(0, focus.x, focus.z, 40, 1);
+  if (q.has('splash')) for (let i = 0; i < 3; i++) fx.splash(focus.x, focus.z, 2);
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (fixedT === null) t += dt; else t = fixedT + frames * 0.016;
+    BW.U.uSkyTime.value = t;
+    BW.World.update(dt, t, camera, focus, [focus]);
+    BW.World.spotPools(BW.Ocean.spots);
+    BW.Ocean.update(t, camera);
+    fx.update(fixedT === null ? dt : 0.016, t, null);
+    post.render(scene, fxScene, camera, t);
+    if (++frames > 12) window.__ready = true;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>

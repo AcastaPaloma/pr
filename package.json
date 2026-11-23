@@ -1,0 +1,11 @@
+{
+  "name": "breakwater",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BREAKWATER — a cockpit-view giant mech defending San Francisco Bay from sea monsters. Procedural three.js, no downloaded assets.",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs 8080"
+  },
+  "license": "MIT"
+}

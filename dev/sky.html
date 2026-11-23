@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf8"><title>stage test</title><body>
+<script src="../vendor/three.min.js"></script>
+<script src="../src/core.js"></script>
+<script src="stage.js"></script>
+<script>
+  const stage = BW.devStage({});
+  const T = THREE;
+  const m = new T.Mesh(new T.SphereGeometry(30, 48, 24), new T.MeshStandardMaterial({ color: 0x555a60, metalness: 1, roughness: 0.25 }));
+  m.position.y = 40; stage.scene.add(m);
+  const m2 = new T.Mesh(new T.SphereGeometry(30, 48, 24), new T.MeshStandardMaterial({ color: 0x20262a, metalness: 0, roughness: 0.4 }));
+  m2.position.set(80, 40, 0); stage.scene.add(m2);
+</script>

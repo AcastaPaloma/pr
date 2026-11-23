@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf8"><title>kaiju harness</title><body>
+<script src="../vendor/three.min.js"></script>
+<script src="../src/core.js"></script>
+<script src="stage.js"></script>
+<script src="../src/kaiju.js"></script>
+<script>
+  // ?sp=bruiser|crawler|spitter  &state=idle  &t=1.0 (fixed pose)  &next=swipeL  &speed=1  &look=0  &all=1 (line up all three)
+  // plus the stage's az / el / dist / ty / fov / w / exp.  Without &state the creature cycles through every state.
+  const q = new URLSearchParams(location.search);
+  const fixed = q.has('t') ? parseFloat(q.get('t')) : null;
+  const next = q.get('next') || 'swipeL', speed = q.has('speed') ? +q.get('speed') : 1, look = q.has('look') ? +q.get('look') : 0;
+  const list = q.has('all') ? ['crawler', 'bruiser', 'spitter'] : [q.get('sp') || 'bruiser'];
+  const ks = [];
+  let state = q.get('state'), st = 0, idx = 0;
+  const cycle = BW.Kaiju.STATES;
+  const durOf = (s) => { const d = BW.Kaiju.DUR[s]; return d ? (d.dur || d) + 0.6 : 3.0; };
+  const stage = BW.devStage({
+    update(dt, t) {
+      if (fixed !== null) { for (const k of ks) k.animate(1 / 60, { state: state || 'idle', t: fixed, next, speed, look }); return; }
+      st += dt;
+      const s = state || cycle[idx];
+      if (!state && st > durOf(s)) { st = 0; idx = (idx + 1) % cycle.length; }
+      for (const k of ks) k.animate(dt, { state: s, t: st, next, speed, look });
+    },
+  });
+  list.forEach((sp, i) => {
+    const k = BW.Kaiju.create(sp, 3 + i);
+    k.group.position.set((i - (list.length - 1) / 2) * 95, BW.SEA_FLOOR, 0);
+    if (q.has('yaw')) k.group.rotation.y = (parseFloat(q.get('yaw')) * Math.PI) / 180;
+    stage.scene.add(k.group);
+    ks.push(k);
+    console.log(sp, JSON.stringify(k.stats));
+  });
+  window.__ks = ks;
+  if (fixed !== null) for (let i = 0; i < 200; i++) for (const k of ks) k.animate(1 / 60, { state: state || 'idle', t: fixed, next, speed, look });
+</script>

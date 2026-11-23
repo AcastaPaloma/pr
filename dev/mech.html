@@ -1,0 +1,65 @@
+<!doctype html><meta charset="utf8"><title>mech harness</title><body>
+<script src="../vendor/three.min.js"></script>
+<script src="../src/core.js"></script>
+<script src="stage.js"></script>
+<script src="../src/mech.js"></script>
+<script>
+  // view=tp|fp  speed strafe turn twist pitch  L R (states)  lt rt (state times)  charge hull dash stagger
+  // t (fixed time)  yaw (group heading, degrees)  + stage params az el dist ty fov w exp
+  const T = THREE;
+  const q = new URLSearchParams(location.search);
+  const num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
+  const view = q.get('view') || 'tp';
+  const mech = BW.Mech.create();
+  mech.group.position.set(0, BW.SEA_FLOOR, 0);
+  mech.group.rotation.y = (num('yaw', 0) * Math.PI) / 180;
+  mech.setView(view);
+  let steps = 0;
+  mech.onStep = (side, pos, s) => { steps++; window.__lastStep = { side, x: pos.x, y: pos.y, z: pos.z, s }; };
+
+  const fixed = q.has('t') || q.has('lt') || q.has('rt');
+  const Ls = q.get('L') || 'idle', Rs = q.get('R') || 'idle';
+  const a = {
+    speed: num('speed', 0), strafe: num('strafe', 0), turn: num('turn', 0), twist: num('twist', 0), pitch: num('pitch', 0),
+    L: { state: 'idle', t: 0 }, R: { state: 'idle', t: 0 },
+    charge: num('charge', 0), hull: num('hull', 1), dash: num('dash', 0), stagger: num('stagger', 0),
+  };
+  if (fixed) {
+    // pre-roll: walk to time t with idle arms, then run the arm states up to their times
+    const t = num('t', 1.5), dt = 1 / 120;
+    for (let s = 0; s < t; s += dt) mech.animate(dt, a);
+    const lt = num('lt', 0), rt = num('rt', 0), tmax = Math.max(lt, rt, 0.5);
+    const Lp = q.get('lprev') || 'idle', Rp = q.get('rprev') || 'idle';
+    for (let s = 0; s < 0.6; s += dt) { a.L = { state: Lp, t: s }; a.R = { state: Rp, t: s }; a.charge = Rp === 'charge' ? 1 : a.charge; mech.animate(dt, a); }
+    a.charge = num('charge', 0);
+    for (let s = 0; s <= tmax + 1e-6; s += dt) {
+      a.L.t = Math.max(0, s - (tmax - lt)); a.R.t = Math.max(0, s - (tmax - rt));
+      if (s < tmax - lt) a.L = { state: Lp, t: 0.6 + s }; else a.L = { state: Ls, t: s - (tmax - lt) };
+      if (s < tmax - rt) a.R = { state: Rp, t: 0.6 + s }; else a.R = { state: Rs, t: s - (tmax - rt) };
+      mech.animate(dt, a);
+    }
+  }
+  const loopDur = (s) => (BW.Mech.DUR[s] ? BW.Mech.DUR[s].dur + 0.5 : 1e9);
+  const _p = new T.Vector3();
+  const stage = BW.devStage({
+    update(dt, t) {
+      if (!fixed) {
+        a.L = { state: Ls, t: t % loopDur(Ls) }; a.R = { state: Rs, t: t % loopDur(Rs) };
+        mech.animate(dt, a);
+      } else mech.animate(0, a);
+      if (view === 'fp') {
+        const cam = stage.camera;
+        if (cam.fov !== num('fov', 75)) { cam.fov = num('fov', 75); cam.near = 0.5; cam.updateProjectionMatrix(); }
+        mech.eye.getWorldPosition(_p);
+        cam.position.copy(_p);
+        cam.rotation.set(a.pitch + num('lookpitch', 0), mech.group.rotation.y + a.twist + Math.PI + (num('look', 0) * Math.PI) / 180, 0, 'YXZ');
+      }
+      const i = stage.renderer.info.render;
+      window.__info = { calls: i.calls, triangles: i.triangles, modelTris: mech.triangles, steps, eyeY: mech.eye.getWorldPosition(new T.Vector3()).y - BW.SEA_FLOOR,
+        fistR: mech.fist(1, new T.Vector3()).toArray().map((v) => +v.toFixed(1)), fistL: mech.fist(-1, new T.Vector3()).toArray().map((v) => +v.toFixed(1)),
+        muzzle: mech.muzzle(new T.Vector3()).toArray().map((v) => +v.toFixed(1)) };
+    },
+  });
+  stage.scene.add(mech.group);
+  window.mech = mech;
+</script>

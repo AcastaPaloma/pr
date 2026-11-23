@@ -1,0 +1,158 @@
+<!doctype html><meta charset="utf8"><title>BREAKWATER audio harness</title><body>
+<style>
+  body { margin: 0; padding: 10px; background: #0c0f13; color: #c9d2dc; font: 11px/1.3 ui-monospace, Menlo, Consolas, monospace; }
+  h1 { font-size: 13px; margin: 0 0 6px; }
+  #grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .cell { background: #141a21; padding: 4px; cursor: pointer; }
+  .cell canvas { display: block; width: 100%; }
+  .bad { color: #ff6a4d; }
+  button { font: inherit; margin-right: 8px; }
+  table { border-collapse: collapse; margin-top: 8px; } td, th { padding: 1px 8px; text-align: right; } td:first-child, th:first-child { text-align: left; }
+</style>
+<h1>BREAKWATER audio — offline renders through the master chain (click a cell to hear it live)</h1>
+<div><button id="live">Live test: init + play everything</button><span id="status">rendering…</span></div>
+<div id="grid"></div>
+<table id="tbl"><tr><th>name</th><th>peak</th><th>rms</th><th>dBFS rms</th><th>dur s</th><th>nan</th></tr></table>
+<script src="../src/audio.js"></script>
+<script>
+(async function () {
+  const A = BW.Audio, grid = document.getElementById('grid'), tbl = document.getElementById('tbl');
+  const report = (window.__audioReport = []);
+
+  // ---- tiny radix-2 FFT (magnitudes only)
+  function fftMag(re) {
+    const n = re.length, im = new Float32Array(n);
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { const t = re[i]; re[i] = re[j]; re[j] = t; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (-2 * Math.PI) / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const a = i + k, b = a + len / 2;
+          const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+    const out = new Float32Array(n / 2);
+    for (let i = 0; i < n / 2; i++) out[i] = Math.hypot(re[i], im[i]) / (n / 4);
+    return out;
+  }
+
+  function analyse(name, buf) {
+    const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, n = L.length, sr = buf.sampleRate;
+    let peak = 0, nan = false, lastLoud = 0;
+    const mono = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const l = L[i], r = R[i];
+      if (!isFinite(l) || !isFinite(r)) nan = true;
+      const a = Math.max(Math.abs(l), Math.abs(r));
+      if (a > peak) peak = a;
+      if (a > 0.003) lastLoud = i;
+      mono[i] = (l + r) * 0.5;
+    }
+    let s = 0;
+    for (let i = 0; i <= lastLoud; i++) s += mono[i] * mono[i];
+    const rms = Math.sqrt(s / (lastLoud + 1));
+    const rec = { name, peak: +peak.toFixed(3), rms: +rms.toFixed(4), dur: +(lastLoud / sr).toFixed(2), nan };
+    report.push(rec);
+
+    // ---- draw waveform + log-frequency spectrogram
+    const cell = document.createElement('div'); cell.className = 'cell';
+    const W = 340, H1 = 46, H2 = 96;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H1 + H2;
+    const c = cv.getContext('2d');
+    c.fillStyle = '#0a0d11'; c.fillRect(0, 0, W, H1 + H2);
+    c.strokeStyle = '#f0703c'; c.beginPath();
+    for (let x = 0; x < W; x++) {
+      const i0 = Math.floor((x / W) * n), i1 = Math.floor(((x + 1) / W) * n);
+      let lo = 1, hi = -1;
+      for (let i = i0; i < i1; i++) { if (mono[i] < lo) lo = mono[i]; if (mono[i] > hi) hi = mono[i]; }
+      c.moveTo(x + 0.5, H1 / 2 - hi * H1 / 2); c.lineTo(x + 0.5, H1 / 2 - lo * H1 / 2 + 1);
+    }
+    c.stroke();
+    const N = 2048, img = c.createImageData(W, H2), win = new Float32Array(N);
+    for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+    const fmin = 30, fmax = 14000;
+    for (let x = 0; x < W; x++) {
+      const start = Math.floor((x / W) * Math.max(1, n - N)), fr = new Float32Array(N);
+      for (let i = 0; i < N; i++) fr[i] = (mono[start + i] || 0) * win[i];
+      const mag = fftMag(fr);
+      for (let y = 0; y < H2; y++) {
+        const f = fmin * Math.pow(fmax / fmin, 1 - y / H2), bin = Math.min(N / 2 - 1, Math.round((f / sr) * N));
+        const db = 20 * Math.log10(mag[bin] + 1e-7), v = Math.max(0, Math.min(1, (db + 85) / 70));
+        const k = (y * W + x) * 4;
+        img.data[k] = 255 * Math.min(1, v * 1.6); img.data[k + 1] = 255 * v * v; img.data[k + 2] = 255 * Math.max(0, v * 2.5 - 1.5) + 40 * (1 - v); img.data[k + 3] = 255;
+      }
+    }
+    c.putImageData(img, 0, H1);
+    const lab = document.createElement('div');
+    lab.textContent = `${name}  pk ${rec.peak}  rms ${rec.rms}  ${rec.dur}s`;
+    if (nan || peak > 0.9 || rms < 0.002) lab.className = 'bad';
+    cell.append(lab, cv);
+    cell.onclick = () => { A.init(); A.play(name, { size: 0.7 }); };
+    grid.appendChild(cell);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${name}</td><td>${rec.peak}</td><td>${rec.rms}</td><td>${(20 * Math.log10(rms + 1e-9)).toFixed(1)}</td><td>${rec.dur}</td><td>${nan}</td>`;
+    tbl.appendChild(tr);
+  }
+
+  try {
+    for (const name of A.NAMES) analyse(name, await A._renderOffline(name, null, { size: 0.7 }));
+    // roar at both ends of the size range
+    analyse('roar(size0)', await A._renderOffline('roar', 3, { size: 0 }));
+    analyse('roar(size1,pan)', await A._renderOffline('roar', 3, { size: 1, pan: -0.8, gain: 0.5 }));
+    // beds: walk up and back, threat rising, a cannon charge, then low hull
+    const sweep = (t) => ({
+      speed: t < 2 ? t / 2 : Math.max(0, 1 - (t - 2) / 2), threat: Math.min(1, t / 6), rain: 0.7,
+      charge: t > 3.5 && t < 5.5 ? (t - 3.5) / 2 : 0, hull: t > 6 ? 0.2 : 1,
+    });
+    analyse('BEDS 8s sweep', await A._renderBedsOffline(8, sweep));
+    analyse('BEDS calm', await A._renderBedsOffline(6, () => ({ speed: 0, threat: 0, rain: 0.6, hull: 1 })));
+    analyse('BEDS paused', await A._renderBedsOffline(4, () => ({ speed: 0.5, threat: 1, rain: 0.6, hull: 1, paused: true })));
+    // worst case: everything loud at once through the master chain
+    const sr = 44100, ctx = new OfflineAudioContext(2, sr * 3, sr), eng = new A._Engine(ctx);
+    eng.startBeds(); eng.update(0.1, { speed: 1, threat: 1, charge: 1, hull: 0.1, rain: 1 });
+    for (const nm of ['slam', 'impact', 'roar', 'cannon', 'plasmaHit', 'kill', 'emerge', 'klaxon', 'block', 'hurt', 'thunder', 'impact', 'slam', 'roar']) eng.play(nm, { size: 1 });
+    analyse('PILE-UP x14 + beds', await ctx.startRendering());
+    document.getElementById('status').textContent = 'offline renders done';
+  } catch (e) {
+    document.getElementById('status').textContent = 'ERROR ' + (e.stack || e);
+    window.__audioError = String(e.stack || e);
+  }
+
+  // ---- live path: must run without exceptions (with or without a gesture)
+  function liveTest() {
+    const res = { ok: true, err: null, state: null, voices: 0 };
+    try {
+      A.play('roar'); A.update(0.016, { speed: 1 });           // before init: no-ops
+      A.init(); A.init();
+      res.state = A._eng ? A._eng.ctx.state : 'no-engine';
+      for (let k = 0; k < 2; k++) for (const nm of A.NAMES) A.play(nm, { pan: Math.random() * 2 - 1, gain: 0.5, pitch: 0.8 + Math.random() * 0.4, size: Math.random() });
+      A.play('nope');
+      res.voices = A._eng ? A._eng.voices.length : 0;
+      for (let i = 0; i < 30; i++) A.update(0.016, { speed: i / 30, hull: 0.2, charge: i / 30, rain: 1, threat: 1, paused: i > 25 });
+      A.update(0.016);
+      A.setMuted(true); A.setMuted(false); A.resume();
+    } catch (e) { res.ok = false; res.err = String(e.stack || e); }
+    return res;
+  }
+  window.__liveNoGesture = liveTest();
+  document.getElementById('live').onclick = () => {
+    window.__live = liveTest();
+    let n = 0;                                                 // keep steering for a second so the scheduler runs
+    const iv = setInterval(() => {
+      try { A.update(0.05, { speed: 0.5, threat: 1, rain: 0.7, hull: 1 }); } catch (e) { window.__live.ok = false; window.__live.err = String(e.stack || e); }
+      if (++n > 20) { clearInterval(iv); window.__live.done = true; window.__live.endState = A._eng && A._eng.ctx.state; window.__live.time = A._eng && A._eng.ctx.currentTime; }
+    }, 50);
+    document.getElementById('status').textContent = 'live: ' + JSON.stringify(window.__live);
+  };
+  window.__ready = true;
+})();
+</script>

@@ -1,0 +1,212 @@
+<title>Breakwater</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one full-bleed cockpit view; instruments sit in the four corners like a canopy frame, menus are a left-hand stencil column. */
+  :root {
+    color-scheme: dark;
+    --hull: #05080b;          /* cockpit black */
+    --ink: #e8eef2;           /* instrument white */
+    --dim: #8b9ba8;           /* secondary labels */
+    --orange: #ff5a2e;        /* International Orange, lit */
+    --orange-deep: #c0362c;   /* the bridge paint itself */
+    --reactor: #7fdcf0;       /* reactor / friendly */
+    --alarm: #ff3327;
+    --acid: #b6ff3c;
+    --glass: rgba(6, 11, 16, 0.58);
+    --line: rgba(232, 238, 242, 0.16);
+    --display: "Big Shoulders Display", "Arial Narrow", "Helvetica Neue", Impact, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  html, body { height: 100%; background: var(--hull); color: var(--ink); overflow: hidden; overscroll-behavior: none; }
+  body { font-family: var(--mono); font-size: 13px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+  #app { position: fixed; inset: 0; background: var(--hull); }
+  #gl, #hud2d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud2d { pointer-events: none; }
+  .pad { position: absolute; inset: 0; pointer-events: none;
+    padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 12px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+  /* ---------- instruments ---------- */
+  #hud .corner { position: absolute; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  #hud .tl { top: calc(env(safe-area-inset-top, 0px) + 12px); left: max(16px, env(safe-area-inset-left, 0px)); }
+  #hud .tr { top: calc(env(safe-area-inset-top, 0px) + 12px); right: max(16px, env(safe-area-inset-right, 0px)); align-items: flex-end; text-align: right; }
+  #hud .bl { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); left: max(16px, env(safe-area-inset-left, 0px)); }
+  #hud .br { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); right: max(16px, env(safe-area-inset-right, 0px)); align-items: flex-end; text-align: right; }
+  .label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+  .stencil { font-family: var(--display); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 0.95; }
+  #callsign { font-size: clamp(15px, 2.4vmin, 22px); color: var(--orange); }
+  #wave { font-size: clamp(22px, 4.2vmin, 40px); }
+  .meter { width: clamp(120px, 24vmin, 250px); }
+  .meter .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+  .meter .num { font-family: var(--display); font-weight: 800; font-size: clamp(18px, 3.2vmin, 30px); }
+  .bar { height: 7px; background: rgba(232, 238, 242, 0.10); border: 1px solid var(--line); position: relative; overflow: hidden; }
+  .bar i { position: absolute; inset: 0; transform-origin: left center; background: var(--ink); display: block; }
+  #hullBar i { background: var(--orange); }
+  #reactorBar i { background: var(--reactor); }
+  #cityBar i { background: var(--ink); }
+  .low #hullBar i, .low #hullNum { background-color: var(--alarm); }
+  .low #hullNum { background: none; color: var(--alarm); animation: blink 0.5s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  #crew { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 10px; letter-spacing: 0.12em; padding: 3px 7px; border: 1px solid var(--line); background: var(--glass); color: var(--dim); text-transform: uppercase; }
+  .chip.on { color: var(--reactor); border-color: rgba(127, 220, 240, 0.5); }
+  .chip.you { color: var(--orange); border-color: rgba(255, 90, 46, 0.55); }
+  #arms { display: flex; gap: 6px; }
+  .arm { width: 46px; padding: 4px 0 3px; text-align: center; border: 1px solid var(--line); background: var(--glass); font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+  .arm.act { color: var(--hull); background: var(--orange); border-color: var(--orange); }
+  .arm.chg { color: var(--hull); background: var(--reactor); border-color: var(--reactor); }
+  #banner { position: absolute; left: 0; right: 0; top: max(19%, 104px); text-align: center; pointer-events: none; padding-inline: max(16px, env(safe-area-inset-left, 0px)); }
+  #bannerMain { font-size: clamp(30px, 8.5vmin, 92px); color: var(--ink); text-shadow: 0 0 28px rgba(255, 90, 46, 0.55); opacity: 0; transition: opacity 0.35s; text-wrap: balance; }
+  #bannerSub { font-size: clamp(11px, 1.9vmin, 15px); letter-spacing: 0.22em; color: var(--orange); opacity: 0; transition: opacity 0.35s; text-transform: uppercase; margin-top: 6px; }
+  #banner.show #bannerMain, #banner.show #bannerSub { opacity: 1; }
+  #combo { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: clamp(18px, 4vmin, 34px); color: var(--orange); opacity: 0; transition: opacity 0.2s; white-space: nowrap; }
+  #combo.show { opacity: 1; }
+  #hint { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); transform: translateX(-50%); font-size: 11px; color: var(--dim); letter-spacing: 0.08em; text-align: center; width: min(60vw, 520px); }
+  #hud.touching #hint { bottom: auto; top: 44%; width: min(84vw, 420px); color: var(--ink); text-shadow: 0 1px 6px #000; }
+  #acid { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+    background: radial-gradient(ellipse at center, rgba(182, 255, 60, 0) 35%, rgba(182, 255, 60, 0.32) 100%); }
+
+  /* ---------- touch controls ---------- */
+  #touch { position: absolute; inset: 0; pointer-events: none; }
+  #stick { position: absolute; width: 124px; height: 124px; border-radius: 50%; border: 1px solid var(--line); background: rgba(6, 11, 16, 0.28);
+    left: max(22px, env(safe-area-inset-left, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 78px); }
+  #stick b { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px; border-radius: 50%; background: rgba(232, 238, 242, 0.28); border: 1px solid rgba(232, 238, 242, 0.5); }
+  #btns { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 70px);
+    display: grid; grid-template-columns: repeat(3, 62px); grid-auto-rows: 62px; gap: 10px; pointer-events: none; }
+  .tb { pointer-events: auto; border-radius: 50%; border: 1px solid rgba(232, 238, 242, 0.42); background: rgba(6, 11, 16, 0.42); color: var(--ink);
+    font: 600 10px/1 var(--mono); letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; text-align: center; touch-action: none; }
+  .tb.hot { border-color: var(--orange); color: var(--orange); }
+  .tb.down { background: var(--orange); color: var(--hull); border-color: var(--orange); }
+  #tPause { position: absolute; pointer-events: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 50%; transform: translateX(-50%); width: 44px; height: 30px; border-radius: 4px; }
+
+  /* ---------- menus ---------- */
+  #menu { position: absolute; inset: 0; display: flex; align-items: flex-end; pointer-events: none;
+    background: linear-gradient(90deg, rgba(5, 8, 11, 0.86) 0%, rgba(5, 8, 11, 0.55) 38%, rgba(5, 8, 11, 0) 70%); }
+  #menu .col { pointer-events: auto; width: min(100%, 520px); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+    padding-block: calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-bottom, 0px) + 24px);
+    padding-left: max(22px, env(safe-area-inset-left, 0px)); padding-right: max(22px, env(safe-area-inset-right, 0px)); }
+  #menu h1 { margin: 0; font-size: clamp(54px, 15vmin, 128px); color: var(--ink); }
+  #menu h1 span { color: var(--orange); }
+  #menu .kicker { font-size: 11px; letter-spacing: 0.24em; color: var(--orange); text-transform: uppercase; }
+  #menu p { margin: 0; color: #c2ccd4; line-height: 1.55; max-width: 46ch; font-size: 13px; }
+  .btn { appearance: none; font: 800 clamp(20px, 3.6vmin, 28px)/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; text-align: left; color: var(--ink);
+    background: var(--glass); border: 1px solid var(--line); border-left: 4px solid var(--orange); padding: 13px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .btn small { font: 500 10px/1.2 var(--mono); letter-spacing: 0.12em; color: var(--dim); text-align: right; }
+  .btn:hover, .btn:focus-visible { background: rgba(255, 90, 46, 0.16); border-color: var(--orange); outline: none; }
+  .btn:focus-visible { box-shadow: 0 0 0 2px var(--orange); }
+  .btn.primary { background: var(--orange); color: var(--hull); border-color: var(--orange); }
+  .btn.primary small { color: rgba(5, 8, 11, 0.7); }
+  .btn.primary:hover, .btn.primary:focus-visible { background: #ff7a55; }
+  .btn[disabled] { opacity: 0.45; cursor: default; border-left-color: var(--dim); }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  #controls { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 11.5px; color: #c2ccd4; }
+  #controls kbd { font: 600 11px var(--mono); color: var(--ink); border: 1px solid var(--line); padding: 1px 6px; background: var(--glass); white-space: nowrap; }
+  #lobbyNote { font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+  #code { font-size: clamp(40px, 9vmin, 72px); color: var(--reactor); letter-spacing: 0.14em; }
+  .stat { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 5px 0; font-variant-numeric: tabular-nums; }
+  #boot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--hull); z-index: 5; text-align: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  #boot .stencil { font-size: clamp(40px, 10vmin, 84px); }
+  #bootMsg { color: var(--dim); letter-spacing: 0.18em; font-size: 11px; text-transform: uppercase; }
+  @media (max-height: 520px) {
+    #menu h1 { font-size: clamp(40px, 16vh, 84px); }
+    #menu .col { gap: 9px; width: min(100%, 640px); }
+    .btn { padding: 9px 14px; }
+    #controls { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { #bannerMain, #bannerSub, #combo { transition: none; } .low #hullNum { animation: none; } }
+</style>
+
+<div id="app">
+  <canvas id="gl"></canvas>
+  <canvas id="hud2d"></canvas>
+
+  <div id="hud" hidden>
+    <div id="acid"></div>
+    <div class="corner tl">
+      <div id="callsign" class="stencil">SF-07 Warden</div>
+      <div id="wave" class="stencil">Standby</div>
+      <div id="crew"></div>
+    </div>
+    <div class="corner tr">
+      <div class="meter">
+        <div class="row"><span class="label">City</span><span id="cityNum" class="num">100%</span></div>
+        <div id="cityBar" class="bar"><i></i></div>
+      </div>
+      <div class="label">Kills <span id="kills">0</span> · Score <span id="score">0</span></div>
+    </div>
+    <div class="corner bl">
+      <div class="meter">
+        <div class="row"><span class="label">Hull</span><span id="hullNum" class="num">100</span></div>
+        <div id="hullBar" class="bar"><i></i></div>
+      </div>
+      <div class="meter">
+        <div class="row"><span class="label">Reactor</span><span id="reactorNum" class="num">100</span></div>
+        <div id="reactorBar" class="bar"><i></i></div>
+      </div>
+    </div>
+    <div class="corner br">
+      <div id="arms"><div id="armL" class="arm">PORT</div><div id="armR" class="arm">STBD</div></div>
+      <div class="label" id="syncLabel"></div>
+    </div>
+    <div id="banner"><div id="bannerMain" class="stencil"></div><div id="bannerSub"></div></div>
+    <div id="combo" class="stencil"></div>
+    <div id="hint"></div>
+  </div>
+
+  <div id="touch" hidden>
+    <div id="stick"><b></b></div>
+    <div id="btns">
+      <button class="tb" id="tDash" type="button">DASH</button>
+      <button class="tb" id="tSlam" type="button">SLAM</button>
+      <button class="tb" id="tView" type="button">VIEW</button>
+      <button class="tb" id="tBlock" type="button">BLOCK</button>
+      <button class="tb hot" id="tFire" type="button">CANNON</button>
+      <span></span>
+      <button class="tb hot" id="tL" type="button">LEFT</button>
+      <button class="tb hot" id="tR" type="button">RIGHT</button>
+    </div>
+    <button class="tb" id="tPause" type="button">II</button>
+  </div>
+
+  <div id="menu" hidden>
+    <div class="col" id="menuCol"></div>
+  </div>
+
+  <div id="boot">
+    <div class="stencil">Break<span style="color:var(--orange)">water</span></div>
+    <div id="bootMsg">Flooding the bay</div>
+  </div>
+</div>
+
+<script>
+  // Loader: three.js from a CDN (with the copy published beside the page as fallback), then the game modules in order.
+  (function () {
+    var msg = document.getElementById('bootMsg');
+    function load(src) {
+      return new Promise(function (ok, fail) {
+        var s = document.createElement('script');
+        s.src = src; s.async = false; s.onload = ok; s.onerror = function () { fail(new Error('could not load ' + src)); };
+        document.head.appendChild(s);
+      });
+    }
+    function three() {
+      var srcs = ['https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js', 'vendor/three.min.js', 'https://unpkg.com/three@0.160.0/build/three.min.js'];
+      var p = Promise.reject();
+      srcs.forEach(function (u) { p = p.catch(function () { return window.THREE ? null : load(u); }); });
+      return p;
+    }
+    var mods = ['core', 'world', 'ocean', 'fx', 'mech', 'kaiju', 'audio', 'input', 'net', 'game'];
+    three().then(function () {
+      return mods.reduce(function (p, m) { return p.then(function () { return load('src/' + m + '.js'); }); }, Promise.resolve());
+    }).then(function () {
+      msg.textContent = 'Raising the bridge';
+      // let the message paint before the heavy synchronous world build
+      requestAnimationFrame(function () { setTimeout(function () { window.BW.Game.boot(); }, 30); });
+    }).catch(function (e) {
+      msg.textContent = 'Could not start: ' + (e && e.message ? e.message : e) + '. Reload the page to try again.';
+      msg.style.color = '#ff3327';
+    });
+  })();
+</script>
