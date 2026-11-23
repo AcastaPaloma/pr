@@ -8,6 +8,10 @@ Everything is code: three.js for rendering, WebAudio for sound. There are no dow
 textures, or audio clips. The world, creatures, machine, materials and sounds are generated
 when the page loads.
 
+There is also a Python-only cut of the same idea on the branch `claude/breakwater-python`: a
+path-traced cockpit-view short film generated entirely by Python (NumPy, Blender Cycles through
+`bpy`, ffmpeg), with its own self-checks.
+
 ## Run it
 
 ```
