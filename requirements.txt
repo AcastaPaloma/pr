@@ -1,0 +1,4 @@
+bpy>=5.0        # Blender as a Python module (Cycles path tracer)
+numpy
+pillow          # PNG writing only
+OpenEXR         # reading Cycles' render passes
